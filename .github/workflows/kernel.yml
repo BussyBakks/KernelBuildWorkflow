@@ -16,6 +16,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git ccache gawk findutils diffutils
 
+    - name: Setup Compiler Cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache
+        key: kernel-ccache-${{ github.sha }}
+        restore-keys: |
+          kernel-ccache-
+
     - name: Download Kernel Source
       run: |
         wget https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.11.tar.xz
@@ -52,7 +60,14 @@ jobs:
     - name: Compile Kernel and Modules
       run: |
         cd linux-7.0.11
-        make -j$(nproc --ignore=1)
+        
+        export CCACHE_DIR=~/.cache/ccache
+        export CCACHE_MAXSIZE=10G
+ 
+        ccache -z
+        make -j$(nproc --ignore=1) CC="ccache gcc"
+        
+        ccache -s
 
     - name: Create Artifact Directory
       run: |
