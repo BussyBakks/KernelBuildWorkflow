@@ -23,6 +23,7 @@ jobs:
         key: kernel-ccache-${{ github.sha }}
         restore-keys: |
           kernel-ccache-
+        save-always: true
 
     - name: Download Kernel Source
       run: |
