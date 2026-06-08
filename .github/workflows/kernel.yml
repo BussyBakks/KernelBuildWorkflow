@@ -29,24 +29,24 @@ jobs:
         SIGNING_KEY_DATA: ${{ secrets.KERNEL_SIGNING_KEY }}
       run: |
         cd linux-7.0.11
-        echo "$SIGNING_KEY_DATA" > certs/my_custom_key.pem
         
-        # 2. Restrict file permissions immediately so other processes can't read it
+        cat << 'EOF' > certs/my_custom_key.pem
+        ${{ secrets.KERNEL_SIGNING_KEY }}
+        EOF
+        
         chmod 600 certs/my_custom_key.pem
         
-        # 3. Tell the kernel config to use this specific file path
         ./scripts/config --set-str CONFIG_MODULE_SIG_KEY "certs/my_custom_key.pem"
         
-        # 4. Clear out the default Alpine maintainer keys
         ./scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
         ./scripts/config --set-str CONFIG_SYSTEM_REVOCATION_KEYS ""
         
-        # 5. Enable your required options
         ./scripts/config --enable CONFIG_DRM_PANIC
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN_QR_CODE
         ./scripts/config --set-str LOCALVERSION "-drmpanic"
         ./scripts/config --disable CONFIG_GCC_PLUGINS
+
         make olddefconfig
 
     - name: Compile Kernel and Modules
