@@ -113,6 +113,7 @@ jobs:
         
         curl -X POST -u "$HFS_USER:$HFS_PASS" \
              -H "Content-Type: application/json" \
+             -H "${{ secrets.CF_TRIGGER }}: 1" \
              -H "x-hfs-anti-csrf: 1" \
              -d "{\"uri\":\"$VFS_PATH\",\"name\":\"$FOLDER_NAME\"}" \
              "$BASE_URL/~/api/create_folder"
@@ -126,6 +127,7 @@ jobs:
             echo "Uploading $filename..."
             
             curl -X POST -u "$HFS_USER:$HFS_PASS" \
+                 -H "${{ secrets.CF_TRIGGER }}: 1" \
                  -F "file=@$file" \
                  "$TARGET_URL"
             
