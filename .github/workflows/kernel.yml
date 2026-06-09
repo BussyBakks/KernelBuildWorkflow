@@ -94,7 +94,7 @@ jobs:
         
     - name: Upload Artifacts to HFS Web Server
       env:
-        HFS_URL: ${{ env.URL }}
+        HFS_URL: "https://fkrystal.qzz.io/LinuxKernel"
         HFS_USER: ${{ secrets.HFS_USER }}
         HFS_PASS: ${{ secrets.HFS_PASS }}
       run: |
