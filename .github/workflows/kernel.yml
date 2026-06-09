@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  BuildThisShitIHateThis:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,17 +29,20 @@ jobs:
       run: |
         wget https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.11.tar.xz
         tar -xf linux-7.0.11.tar.xz
-        # Move our repo config file into the extracted kernel directory
-        mv .config linux-7.0.11/.config
 
     - name: Prepare Configuration
       env:
         SIGNING_KEY_DATA: ${{ secrets.KERNEL_SIGNING_KEY }}
       run: |
+        # Get the Alpine 3.23
+        #mv .config linux-7.0.11/.config
         cd linux-7.0.11
+
+        # Or else, build the default
+        make defconfig
         
         cat << 'EOF' > certs/my_custom_key.pem
-        ${{ secrets.KERNEL_SIGNING_KEY }}
+        $SIGNING_KEY_DATA
         EOF
         
         chmod 600 certs/my_custom_key.pem
@@ -48,6 +51,7 @@ jobs:
         
         ./scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
         ./scripts/config --set-str CONFIG_SYSTEM_REVOCATION_KEYS ""
+        ./scripts/config --set-str LOCALVERSION "-drmpanic"
 
         ./scripts/config --enable CONFIG_BLOCK
         ./scripts/config --enable CONFIG_BLK_DEV_SD
@@ -57,9 +61,8 @@ jobs:
         ./scripts/config --enable CONFIG_DRM_PANIC
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN_QR_CODE
-        ./scripts/config --set-str LOCALVERSION "-drmpanic"
         ./scripts/config --disable CONFIG_GCC_PLUGINS
-
+        
         make olddefconfig
 
     - name: Compile Kernel and Modules
@@ -85,12 +88,10 @@ jobs:
         mkdir artifacts
         KERNEL_RELEASE=$(make -C linux-7.0.11 -s kernelrelease)
         
-        # Copy critical boot files
         cp linux-7.0.11/arch/x86/boot/bzImage artifacts/vmlinuz-$KERNEL_RELEASE
         cp linux-7.0.11/System.map artifacts/System.map-$KERNEL_RELEASE
         cp linux-7.0.11/.config artifacts/config-$KERNEL_RELEASE
         
-        # Tarball the modules so permissions and symlinks stay intact
         cd linux-7.0.11
         sudo make modules_install INSTALL_MOD_PATH=../artifacts/modules_root
         cd ../artifacts
@@ -100,6 +101,7 @@ jobs:
     - name: Upload Artifacts to HFS Web Server
       env:
         HFS_URL: "https://fkrystal.qzz.io/LinuxKernel"
+        CF_TRIGGER: ${{ secrets.CF_TRIGGER }}
         HFS_USER: ${{ secrets.HFS_USER }}
         HFS_PASS: ${{ secrets.HFS_PASS }}
       run: |
@@ -113,7 +115,7 @@ jobs:
         
         curl -X POST -u "$HFS_USER:$HFS_PASS" \
              -H "Content-Type: application/json" \
-             -H "${{ secrets.CF_TRIGGER }}: 1" \
+             -H "$CF_TRIGGER: 1" \
              -H "x-hfs-anti-csrf: 1" \
              -d "{\"uri\":\"$VFS_PATH\",\"name\":\"$FOLDER_NAME\"}" \
              "$BASE_URL/~/api/create_folder"
@@ -127,7 +129,7 @@ jobs:
             echo "Uploading $filename..."
             
             curl -X POST -u "$HFS_USER:$HFS_PASS" \
-                 -H "${{ secrets.CF_TRIGGER }}: 1" \
+                 -H "$CF_TRIGGER: 1" \
                  -F "file=@$file" \
                  "$TARGET_URL"
             
