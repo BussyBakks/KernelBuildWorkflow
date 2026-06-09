@@ -10,20 +10,20 @@ jobs:
     steps:
     - name: Checkout Repository Config
       uses: actions/checkout@v4
-
-    - name: Install Build Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git ccache gawk findutils diffutils
-
-    - name: Setup Compiler Cache
-      uses: actions/cache@v4
+      
+    - name: Restore Compiler Cache
+      id: ccache-restore
+      uses: actions/cache/restore@v4
       with:
         path: ~/.cache/ccache
         key: kernel-ccache-${{ github.sha }}
         restore-keys: |
           kernel-ccache-
-        save-always: true
+
+    - name: Install Build Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc git ccache gawk findutils diffutils
 
     - name: Download Kernel Source
       run: |
@@ -34,7 +34,6 @@ jobs:
 
     - name: Prepare Configuration
       env:
-        # Securely pull the key from GitHub Secrets into an environment variable
         SIGNING_KEY_DATA: ${{ secrets.KERNEL_SIGNING_KEY }}
       run: |
         cd linux-7.0.11
@@ -67,8 +66,14 @@ jobs:
  
         ccache -z
         make -j$(nproc --ignore=1) CC="ccache gcc"
-        
         ccache -s
+
+    - name: Save Compiler Cache (Always)
+      uses: actions/cache/save@v4
+      if: always() && steps.ccache-restore.outputs.cache-hit != 'true'
+      with:
+        path: ~/.cache/ccache
+        key: kernel-ccache-${{ github.sha }}
 
     - name: Create Artifact Directory
       run: |
@@ -86,6 +91,43 @@ jobs:
         cd ../artifacts
         sudo tar -czf modules.tar.gz modules_root/
         sudo rm -rf modules_root/
+        
+    - name: Upload Artifacts to HFS Web Server
+      env:
+        HFS_URL: ${{ env.HFS_URL }}
+        HFS_USER: ${{ secrets.HFS_USER }}
+        HFS_PASS: ${{ secrets.HFS_PASS }}
+      run: |
+        cd linux-7.0.11
+        FOLDER_NAME="$(make -s kernelrelease)-$(TZ='Asia/Ho_Chi_Minh' date +'%Y%m%d-%H%M%S')"
+        cd ..
+        
+        BASE_URL=$(echo "$HFS_URL" | sed -e 's/\(https*:\/\/[^\/]*\).*/\1/')
+        VFS_PATH=$(echo "$HFS_URL" | sed -e 's/https*:\/\/[^\/]*//')
+        if [ -z "$VFS_PATH" ]; then VFS_PATH="/"; fi
+        
+        curl -X POST -u "$HFS_USER:$HFS_PASS" \
+             -H "Content-Type: application/json" \
+             -H "x-hfs-anti-csrf: 1" \
+             -d "{\"uri\":\"$VFS_PATH\",\"name\":\"$FOLDER_NAME\"}" \
+             "$BASE_URL/~/api/create_folder"
+             
+        TARGET_URL="$BASE_URL$VFS_PATH/$FOLDER_NAME/"
+        echo -e "\nUploading artifacts to destination path: $TARGET_URL\n"
+        
+        for file in artifacts/*; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "Uploading $filename..."
+            
+            curl -X POST -u "$HFS_USER:$HFS_PASS" \
+                 -F "file=@$file" \
+                 "$TARGET_URL"
+            
+            echo -e "\nFinished $filename\n"
+          fi
+        done
+        
 
     - name: Upload Kernel Artifacts
       uses: actions/upload-artifact@v4
