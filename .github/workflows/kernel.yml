@@ -48,6 +48,11 @@ jobs:
         
         ./scripts/config --set-str CONFIG_SYSTEM_TRUSTED_KEYS ""
         ./scripts/config --set-str CONFIG_SYSTEM_REVOCATION_KEYS ""
+
+        ./scripts/config --enable CONFIG_BLOCK
+        ./scripts/config --enable CONFIG_BLK_DEV_SD
+        ./scripts/config --enable CONFIG_SCSI
+        ./scripts/config --enable CONFIG_EXT4_FS
         
         ./scripts/config --enable CONFIG_DRM_PANIC
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN
