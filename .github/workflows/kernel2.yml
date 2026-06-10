@@ -1,0 +1,177 @@
+name: Build Linux Kernel (Native Alpine)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository Config
+      uses: actions/checkout@v4
+      
+    - name: Restore Compiler Cache
+      id: ccache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/ccache
+        key: kernel-ccache-alpine-${{ github.sha }}
+        restore-keys: |
+          kernel-ccache-alpine-
+
+    - name: Setup Alpine Linux Environment
+      uses: jirutka/setup-alpine@v1
+      with:
+        branch: v3.23 # Matches your Alpine v3.23 server branch
+        packages: >
+          build-base
+          ncurses-dev
+          openssl-dev
+          bison
+          flex
+          elfutils-dev
+          bc
+          git
+          ccache
+          gawk
+          findutils
+          diffutils
+          tar
+          xz
+          curl
+          bash
+
+    - name: Download Kernel Source
+      shell: alpine.sh {0}
+      run: |
+        curl -LO https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.11.tar.xz
+        tar -xf linux-7.0.11.tar.xz
+        # Move our repo config file if it exists, otherwise defconfig handles it
+        if [ -f .config ]; then mv .config linux-7.0.11/.config; fi
+
+    - name: Prepare Configuration
+      env:
+        SIGNING_KEY_DATA: ${{ secrets.KERNEL_SIGNING_KEY }}
+      shell: alpine.sh {0}
+      run: |
+        cd linux-7.0.11
+        
+        # 1. Start fresh with standard 7.x x86_64 default config instructions
+        make defconfig
+        
+        cat << 'EOF' > certs/my_custom_key.pem
+        $SIGNING_KEY_DATA
+        EOF
+        
+        chmod 600 certs/my_custom_key.pem
+        
+        ./scripts/config --set-str CONFIG_MODULE_SIG_KEY "certs/my_custom_key.pem"
+        
+        # 2. FORCE core storage and ext4 filesystem layers to be built-in (=y)
+        ./scripts/config --enable CONFIG_BLOCK
+        ./scripts/config --enable CONFIG_BLK_DEV_SD
+        ./scripts/config --enable CONFIG_SCSI
+        ./scripts/config --enable CONFIG_EXT4_FS
+        
+        # 3. Enable required display debugging and panic features
+        ./scripts/config --enable CONFIG_DRM_PANIC
+        ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN
+        ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN_QR_CODE
+        ./scripts/config --set-str LOCALVERSION "-falph-${{github.sha}}"
+        
+        # 4. Strip strict signing checks so modules can execute easily
+        ./scripts/config --disable CONFIG_GCC_PLUGINS
+        ./scripts/config --disable CONFIG_MODULE_SIG
+        ./scripts/config --disable CONFIG_MODULE_SIG_FORCE
+        ./scripts/config --disable CONFIG_MODVERSIONS
+
+        make olddefconfig
+
+    - name: Compile Kernel and Modules
+      shell: alpine.sh {0}
+      run: |
+        cd linux-7.0.11
+        
+        export CCACHE_DIR=~/.cache/ccache
+        export CCACHE_MAXSIZE=10G
+ 
+        ccache -z
+        make -j$(nproc --ignore=1) CC="ccache gcc"
+        ccache -s
+
+    - name: Save Compiler Cache (Always)
+      uses: actions/cache/save@v4
+      if: always() && steps.ccache-restore.outputs.cache-hit != 'true'
+      with:
+        path: ~/.cache/ccache
+        key: kernel-ccache-alpine-${{ github.sha }}
+
+    - name: Create Artifact Directory
+      shell: alpine.sh {0}
+      run: |
+        mkdir -p artifacts
+        KERNEL_RELEASE=$(make -C linux-7.0.11 -s kernelrelease)
+        
+        # Copy boot payloads
+        cp linux-7.0.11/arch/x86/boot/bzImage artifacts/vmlinuz-$KERNEL_RELEASE
+        cp linux-7.0.11/System.map artifacts/System.map-$KERNEL_RELEASE
+        cp linux-7.0.11/.config artifacts/config-$KERNEL_RELEASE
+        
+        # Compile modules to dynamic tracking root
+        cd linux-7.0.11
+        make modules_install INSTALL_MOD_PATH=../artifacts/modules_root
+        cd ../artifacts
+        
+        tar -czf modules.tar.gz modules_root/
+        rm -rf modules_root/
+        
+    - name: Upload Artifacts to server
+      shell: alpine.sh {0}
+      env:
+        HFS_URL: "https://fkrystal.qzz.io/LinuxKernel"
+        HFS_USER: ${{ secrets.HFS_USER }}
+        HFS_PASS: ${{ secrets.HFS_PASS }}
+        CF_TRIGGER: ${{ secrets.CF_TRIGGER }}
+      run: |
+        cd linux-7.0.11
+        FOLDER_NAME="$(make -s kernelrelease)-$(TZ='Asia/Ho_Chi_Minh' date +'%Y%m%d-%H%M%S')"
+        cd ..
+        
+        BASE_URL=$(echo "$HFS_URL" | sed -e 's/\(https*:\/\/[^\/]*\).*/\1/')
+        VFS_PATH=$(echo "$HFS_URL" | sed -e 's/https*:\/\/[^\/]*//')
+        if [ -z "$VFS_PATH" ]; then VFS_PATH="/"; fi
+        AUTH_TOKEN=$(echo -n "$HFS_USER:$HFS_PASS" | base64)
+        
+        echo "Creating remote directory folder: $FOLDER_NAME"
+        
+        # Make targeted directory mapping using the bypassed trigger header
+        curl -X POST \
+             -H "Authorization: Basic $AUTH_TOKEN" \
+             -H "Content-Type: application/json" \
+             -H "x-hfs-anti-csrf: 1" \
+             -H "trigger: $CF_TRIGGER" \
+             -d "{\"uri\":\"$VFS_PATH\",\"name\":\"$FOLDER_NAME\"}" \
+             "$BASE_URL/~/api/create_folder"
+             
+        TARGET_URL="$BASE_URL$VFS_PATH/$FOLDER_NAME/"
+        
+        for file in artifacts/*; do
+          if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            echo "Uploading file payload: $filename..."
+            
+            curl -X POST \
+                 -H "Authorization: Basic $AUTH_TOKEN" \
+                 -H "trigger: $CF_TRIGGER" \
+                 -F "file=@$file" \
+                 "$TARGET_URL"
+          fi
+        done
+        
+    - name: Upload Kernel Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: custom-kernel-7.0.11-alpine
+        path: artifacts/
+        retention-days: 5
