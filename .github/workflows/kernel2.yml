@@ -15,7 +15,7 @@ jobs:
       id: ccache-restore
       uses: actions/cache/restore@v4
       with:
-        path: ~/.cache/ccache
+        path: .ccache
         key: kernel-ccache-alpine-${{ github.sha }}
         restore-keys: |
           kernel-ccache-alpine-
@@ -58,7 +58,7 @@ jobs:
       run: |
         cd linux-7.0.11
         
-        # 1. Start fresh with standard 7.x x86_64 default config instructions
+        # Start fresh with standard 7.x x86_64 default config instructions
         make defconfig
         make archheaders
         
@@ -70,19 +70,24 @@ jobs:
         
         ./scripts/config --set-str CONFIG_MODULE_SIG_KEY "certs/my_custom_key.pem"
         
-        # 2. FORCE core storage and ext4 filesystem layers to be built-in (=y)
+        # FORCE core storage and ext4 filesystem layers to be built-in (=y)
         ./scripts/config --enable CONFIG_BLOCK
         ./scripts/config --enable CONFIG_BLK_DEV_SD
         ./scripts/config --enable CONFIG_SCSI
         ./scripts/config --enable CONFIG_EXT4_FS
         
-        # 3. Enable required display debugging and panic features
+        # Enable required display debugging and panic features
         ./scripts/config --enable CONFIG_DRM_PANIC
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN
         ./scripts/config --enable CONFIG_DRM_PANIC_SCREEN_QR_CODE
         ./scripts/config --set-str LOCALVERSION "-falph-${{github.sha}}"
+
+        # Bye debug info
+        ./scripts/config --disable CONFIG_DEBUG_INFO
+        ./scripts/config --disable CONFIG_DEBUG_INFO_BTF
+        ./scripts/config --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
         
-        # 4. Strip strict signing checks so modules can execute easily
+        # Strip strict signing checks so modules can execute easily
         ./scripts/config --disable CONFIG_GCC_PLUGINS
         ./scripts/config --disable CONFIG_MODULE_SIG
         ./scripts/config --disable CONFIG_MODULE_SIG_FORCE
@@ -95,18 +100,18 @@ jobs:
       run: |
         cd linux-7.0.11
         
-        export CCACHE_DIR=~/.cache/ccache
+        export CCACHE_DIR=$GITHUB_WORKSPACE/.ccache
         export CCACHE_MAXSIZE=10G
  
         ccache -z
-        make -j$(nproc --ignore=1) CC="ccache gcc"
+        make -j$(nproc --ignore=2) CC="ccache gcc"
         ccache -s
 
     - name: Save Compiler Cache (Always)
       uses: actions/cache/save@v4
       if: always() && steps.ccache-restore.outputs.cache-hit != 'true'
       with:
-        path: ~/.cache/ccache
+        path: .cache
         key: kernel-ccache-alpine-${{ github.sha }}
 
     - name: Create Artifact Directory
