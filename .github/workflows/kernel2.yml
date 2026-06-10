@@ -48,14 +48,14 @@ jobs:
         curl -LO https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.12.tar.xz
         tar -xf linux-7.0.12.tar.xz
         # Move our repo config file if it exists, otherwise defconfig handles it
-        #if [ -f .config ]; then mv .config linux-7.0.11/.config; fi
+        #if [ -f .config ]; then mv .config linux-7.0.12/.config; fi
 
     - name: Prepare Configuration
       env:
         SIGNING_KEY_DATA: ${{ secrets.KERNEL_SIGNING_KEY }}
       shell: alpine.sh {0}
       run: |
-        cd linux-7.0.11
+        cd linux-7.0.12
         
         # 1. Start fresh with standard 7.x x86_64 default config instructions
         make defconfig
@@ -91,7 +91,7 @@ jobs:
     - name: Compile Kernel and Modules
       shell: alpine.sh {0}
       run: |
-        cd linux-7.0.11
+        cd linux-7.0.12
         
         export CCACHE_DIR=~/.cache/ccache
         export CCACHE_MAXSIZE=10G
@@ -111,15 +111,15 @@ jobs:
       shell: alpine.sh {0}
       run: |
         mkdir -p artifacts
-        KERNEL_RELEASE=$(make -C linux-7.0.11 -s kernelrelease)
+        KERNEL_RELEASE=$(make -C linux-7.0.12 -s kernelrelease)
         
         # Copy boot payloads
-        cp linux-7.0.11/arch/x86/boot/bzImage artifacts/vmlinuz-$KERNEL_RELEASE
-        cp linux-7.0.11/System.map artifacts/System.map-$KERNEL_RELEASE
-        cp linux-7.0.11/.config artifacts/config-$KERNEL_RELEASE
+        cp linux-7.0.12/arch/x86/boot/bzImage artifacts/vmlinuz-$KERNEL_RELEASE
+        cp linux-7.0.12/System.map artifacts/System.map-$KERNEL_RELEASE
+        cp linux-7.0.12/.config artifacts/config-$KERNEL_RELEASE
         
         # Compile modules to dynamic tracking root
-        cd linux-7.0.11
+        cd linux-7.0.12
         make modules_install INSTALL_MOD_PATH=../artifacts/modules_root
         cd ../artifacts
         
@@ -134,7 +134,7 @@ jobs:
         HFS_PASS: ${{ secrets.HFS_PASS }}
         CF_TRIGGER: ${{ secrets.CF_TRIGGER }}
       run: |
-        cd linux-7.0.11
+        cd linux-7.0.12
         FOLDER_NAME="$(make -s kernelrelease)-$(TZ='Asia/Ho_Chi_Minh' date +'%Y%m%d-%H%M%S')"
         cd ..
         
