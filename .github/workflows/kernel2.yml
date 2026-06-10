@@ -46,7 +46,7 @@ jobs:
       shell: alpine.sh {0}
       run: |
         curl -LO https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.12.tar.xz
-        tar -xf linux-7.0.11.tar.xz
+        tar -xf linux-7.0.12.tar.xz
         # Move our repo config file if it exists, otherwise defconfig handles it
         #if [ -f .config ]; then mv .config linux-7.0.11/.config; fi
 
